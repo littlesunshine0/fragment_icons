@@ -1,0 +1,14 @@
+struct FragmentModuleIcon: View {
+    var body: some View {
+        ZStack {
+            ForEach(0..<4) { i in
+                Capsule()
+                    .frame(width: 6, height: 12)
+                    .rotationEffect(.degrees(Double(i) * 90))
+                    .offset(x: CGFloat((i % 2) * 8 - 4), y: CGFloat((i / 2) * 8 - 4))
+            }
+        }
+        .foregroundStyle(.linearGradient(colors: [.blue, .cyan], startPoint: .top, endPoint: .bottom))
+        .frame(width: 28, height: 28)
+    }
+}
