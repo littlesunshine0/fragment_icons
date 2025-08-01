@@ -1,0 +1,61 @@
+import SwiftUI
+
+struct Polygon: Shape {
+    var sides: Int
+    var cornerRadius: CGFloat = 0
+
+    var animatableData: CGFloat {
+        get { cornerRadius }
+        set { cornerRadius = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard sides >= 3 else { return Path() }
+
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2 - cornerRadius
+
+        // Compute vertices
+        let angle = 2 * .pi / CGFloat(sides)
+        let vertices: [CGPoint] = (0..<sides).map { i in
+            let theta = angle * CGFloat(i) - .pi / 2
+            return CGPoint(
+                x: center.x + cos(theta) * radius,
+                y: center.y + sin(theta) * radius
+            )
+        }
+
+        var path = Path()
+        for i in 0..<sides {
+            let prev = vertices[(i - 1 + sides) % sides]
+            let current = vertices[i]
+            let next = vertices[(i + 1) % sides]
+
+            // Compute the points for rounded corners
+            let prevVector = CGVector(dx: current.x - prev.x, dy: current.y - prev.y)
+            let nextVector = CGVector(dx: next.x - current.x, dy: next.y - current.y)
+
+            let prevLen = sqrt(prevVector.dx * prevVector.dx + prevVector.dy * prevVector.dy)
+            let nextLen = sqrt(nextVector.dx * nextVector.dx + nextVector.dy * nextVector.dy)
+
+            let prevInset = CGPoint(
+                x: current.x - (cornerRadius * prevVector.dx / prevLen),
+                y: current.y - (cornerRadius * prevVector.dy / prevLen)
+            )
+            let nextInset = CGPoint(
+                x: current.x + (cornerRadius * nextVector.dx / nextLen),
+                y: current.y + (cornerRadius * nextVector.dy / nextLen)
+            )
+
+            if i == 0 {
+                path.move(to: prevInset)
+            } else {
+                path.addLine(to: prevInset)
+            }
+
+            path.addQuadCurve(to: nextInset, control: current)
+        }
+        path.closeSubpath()
+        return path
+    }
+}
