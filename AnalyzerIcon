@@ -1,0 +1,599 @@
+import SwiftUI
+import CoreGraphics
+// MARK: - Glyph Morph State
+enum GlyphMorphState: Equatable, CaseIterable {
+    case idle
+    case active
+    case processing
+    case error
+
+    var description: String {
+        switch self {
+        case .idle: return "idle"
+        case .active: return "active"
+        case .processing: return "processing"
+        case .error: return "error"
+        }
+    }
+}
+
+struct Polygon: Shape {
+    var sides: Int
+    var cornerRadius: CGFloat = 0
+
+    var animatableData: CGFloat {
+        get { cornerRadius }
+        set { cornerRadius = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard sides >= 3 else { return Path() }
+
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2 - cornerRadius
+
+        // Compute vertices
+        let angle = 2 * .pi / CGFloat(sides)
+        let vertices: [CGPoint] = (0..<sides).map { i in
+            let theta = angle * CGFloat(i) - .pi / 2
+            return CGPoint(
+                x: center.x + cos(theta) * radius,
+                y: center.y + sin(theta) * radius
+            )
+        }
+
+        var path = Path()
+        for i in 0..<sides {
+            let prev = vertices[(i - 1 + sides) % sides]
+            let current = vertices[i]
+            let next = vertices[(i + 1) % sides]
+
+            // Compute the points for rounded corners
+            let prevVector = CGVector(dx: current.x - prev.x, dy: current.y - prev.y)
+            let nextVector = CGVector(dx: next.x - current.x, dy: next.y - current.y)
+
+            let prevLen = sqrt(prevVector.dx * prevVector.dx + prevVector.dy * prevVector.dy)
+            let nextLen = sqrt(nextVector.dx * nextVector.dx + nextVector.dy * nextVector.dy)
+
+            let prevInset = CGPoint(
+                x: current.x - (cornerRadius * prevVector.dx / prevLen),
+                y: current.y - (cornerRadius * prevVector.dy / prevLen)
+            )
+            let nextInset = CGPoint(
+                x: current.x + (cornerRadius * nextVector.dx / nextLen),
+                y: current.y + (cornerRadius * nextVector.dy / nextLen)
+            )
+
+            if i == 0 {
+                path.move(to: prevInset)
+            } else {
+                path.addLine(to: prevInset)
+            }
+
+            path.addQuadCurve(to: nextInset, control: current)
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Enhanced Affinity Profile Environment
+struct AffinityProfile {
+    var gradientColors: [Color] // Store colors to allow gradient animation
+    var gradientStart: UnitPoint = .topLeading
+    var gradientEnd: UnitPoint = .bottomTrailing
+    var shadowColor: Color
+    var glowIntensity: CGFloat
+    var glowColor: Color // Separate color for glow for more control
+
+    init(
+        gradientColors: [Color],
+        gradientStart: UnitPoint = .topLeading,
+        gradientEnd: UnitPoint = .bottomTrailing,
+        shadowColor: Color = .black.opacity(0.2),
+        glowIntensity: CGFloat = 0.3,
+        glowColor: Color = .white // Default glow color
+    ) {
+        self.gradientColors = gradientColors
+        self.gradientStart = gradientStart
+        self.gradientEnd = gradientEnd
+        self.shadowColor = shadowColor
+        self.glowIntensity = glowIntensity
+        self.glowColor = glowColor
+    }
+
+    // Predefined themes
+    static let defaultTheme = AffinityProfile(
+        gradientColors: [.blue, .purple],
+        shadowColor: .purple.opacity(0.3),
+        glowIntensity: 0.4,
+        glowColor: .purple.opacity(0.6)
+    )
+
+    static let ocean = AffinityProfile(
+        gradientColors: [.cyan, .blue],
+        shadowColor: .blue.opacity(0.3),
+        glowIntensity: 0.4,
+        glowColor: .blue.opacity(0.5)
+    )
+
+    static let sunset = AffinityProfile(
+        gradientColors: [.orange, .pink, .purple],
+        gradientStart: .top,
+        gradientEnd: .bottom,
+        shadowColor: .orange.opacity(0.4),
+        glowIntensity: 0.5,
+        glowColor: .pink.opacity(0.7)
+    )
+
+    static let forest = AffinityProfile(
+        gradientColors: [.green, .mint],
+        shadowColor: .green.opacity(0.3),
+        glowIntensity: 0.3,
+        glowColor: .mint.opacity(0.5)
+    )
+
+    static let error = AffinityProfile(
+        gradientColors: [.red, .orange],
+        shadowColor: .red.opacity(0.5),
+        glowIntensity: 0.6,
+        glowColor: .red.opacity(0.8)
+    )
+}
+
+private struct AffinityProfileKey: EnvironmentKey {
+    static let defaultValue = AffinityProfile.defaultTheme
+}
+
+extension EnvironmentValues {
+    var affinityProfile: AffinityProfile {
+        get { self[AffinityProfileKey.self] }
+        set { self[AffinityProfileKey.self] = newValue }
+    }
+}
+
+// MARK: - Enhanced Fragment Analyzer Icon
+struct FragmentAnalyzerIcon: View {
+    let state: GlyphMorphState
+    var size: CGFloat = 28
+    var enableHaptics: Bool = true
+    var animationDuration: Double = 0.35 // Slightly longer for more expressiveness
+    var animationOffset: Double = 0 // For staggering animations or variations
+
+    @Environment(\.affinityProfile) private var affinity
+
+    // State for animations
+    @State private var isHovering = false
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var rotationAngle: Double = 0
+    @State private var innerPolygonScale: CGFloat = 1.0 // For squash/stretch
+    @State private var outerCircleScale: CGFloat = 1.0 // For squash/stretch
+    @State private var glowScale: CGFloat = 1.0 // For glow pulse
+
+    // --- Computed Properties for Visuals ---
+
+    private var currentProfile: AffinityProfile {
+        switch state {
+        case .error: return .error
+        default: return affinity
+        }
+    }
+
+    private var mainGradient: LinearGradient {
+        LinearGradient(
+            colors: currentProfile.gradientColors,
+            startPoint: currentProfile.gradientStart,
+            endPoint: currentProfile.gradientEnd
+        )
+    }
+
+    private var glowGradient: LinearGradient {
+        LinearGradient(
+            colors: [currentProfile.glowColor.opacity(currentProfile.glowIntensity), currentProfile.glowColor.opacity(0)],
+            startPoint: .center,
+            endPoint: .center
+        )
+    }
+
+    private var circleScale: CGFloat {
+        switch state {
+        case .idle: return isHovering ? 1.05 : 1.0
+        case .active: return 1.1 * outerCircleScale // Apply custom scale
+        case .processing: return pulseScale // Use the pulsing scale
+        case .error: return 0.95 * outerCircleScale // Apply custom scale
+        }
+    }
+
+    private var circleOpacity: Double {
+        switch state {
+        case .idle: return 1.0
+        case .active: return 0.95 // Slightly more opaque when active
+        case .processing: return 0.8
+        case .error: return 1.0
+        }
+    }
+
+    private var polygonOffset: CGSize {
+        switch state {
+        case .idle: return CGSize(width: size * 0.29, height: size * 0.29) // Slightly diagonal
+        case .active: return CGSize(width: size * 0.21, height: size * 0.21) // More centered
+        case .processing: return CGSize(width: size * 0.25, height: size * 0.25) // Mid-way
+        case .error: return CGSize(width: size * 0.32, height: size * 0.32) // More offset
+        }
+    }
+
+    private var polygonRotation: Double {
+        switch state {
+        case .idle: return 45
+        case .active: return 90
+        case .processing: return rotationAngle
+        case .error: return 0
+        }
+    }
+
+    private var polygonSides: Int {
+        switch state {
+        case .idle, .active, .processing: return 4
+        case .error: return 3
+        }
+    }
+
+    // New: Corner radius for the polygon, animatable
+    private var polygonCornerRadius: CGFloat {
+        switch state {
+        case .processing: return size * 0.05 // Subtle rounding when processing
+        case .error: return size * 0.15 // More pronounced rounding for error
+        default: return 0 // Sharp corners when idle/active
+        }
+    }
+
+    // New: Shadow properties that can animate
+    private var shadowRadius: CGFloat {
+        switch state {
+        case .active: return 6
+        case .processing: return 4
+        case .error: return 8
+        default: return 2
+        }
+    }
+
+    private var shadowYOffset: CGFloat {
+        switch state {
+        case .active: return 3
+        case .processing: return 2
+        case .error: return 4
+        default: return 1
+        }
+    }
+
+
+    // --- Body ---
+    var body: some View {
+        ZStack {
+            // Background glow effect
+            if currentProfile.glowIntensity > 0 {
+                Circle()
+                    .fill(glowGradient) // Use a gradient for the glow
+                    .frame(width: size * 0.86, height: size * 0.86)
+                    .blur(radius: (currentProfile.glowIntensity * 4) * glowScale) // Blur scales with glow
+                    .scaleEffect(circleScale * 1.2 * glowScale) // Glow scales more
+                    .animation(
+                        .easeInOut(duration: animationDuration * 1.5).delay(animationOffset * 0.1), // Slower, delayed glow pulse
+                        value: state
+                    )
+                    .animation(
+                        .easeInOut(duration: 1.2).delay(animationOffset * 0.1).repeatForever(autoreverses: true),
+                        value: glowScale // Independent animation for glow pulse
+                    )
+            }
+
+            // Main circle
+            Circle()
+                .stroke(mainGradient, lineWidth: size * 0.06) // Thicker, more prominent stroke with gradient
+                .frame(width: size * 0.86, height: size * 0.86)
+                .scaleEffect(circleScale * outerCircleScale) // Apply combined scale
+                .opacity(circleOpacity)
+                .shadow(
+                    color: currentProfile.shadowColor,
+                    radius: shadowRadius,
+                    x: 0,
+                    y: shadowYOffset
+                )
+                .animation(
+                    .spring(response: animationDuration, dampingFraction: 0.7, blendDuration: animationDuration), // Spring for more bounce
+                    value: state
+                )
+                .animation(
+                    .easeInOut(duration: animationDuration * 0.8),
+                    value: isHovering
+                )
+
+            // Inner polygon
+            Polygon(sides: polygonSides, cornerRadius: polygonCornerRadius)
+                .fill(mainGradient) // Fill the polygon with the main gradient
+                .frame(width: size * 0.21, height: size * 0.21)
+                .scaleEffect(innerPolygonScale) // Apply custom scale
+                .offset(x: polygonOffset.width, y: polygonOffset.height)
+                .rotationEffect(.degrees(polygonRotation))
+                .animation(
+                    .spring(response: animationDuration, dampingFraction: 0.8, blendDuration: animationDuration), // Spring for bounce
+                    value: state
+                )
+        }
+        .frame(width: size, height: size)
+        .contentShape(Circle()) // Ensure tap area is the full circle
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isHovering = hovering
+            }
+        }
+        .onChange(of: state) { _, newState in
+            handleStateChange(newState)
+            // Trigger animations based on new state
+            animateForState(newState)
+        }
+        .onAppear {
+            setupAnimations() // Initial animations
+            animateForState(state) // Start animations based on initial state
+        }
+        .accessibilityLabel("Fragment analyzer icon")
+        .accessibilityValue("State: \(state.description)")
+        .accessibilityHint("Indicates the current analysis status")
+        .accessibilityAddTraits(state == .active ? .isSelected : [])
+    }
+
+    // --- Animation Handling ---
+
+    private func handleStateChange(_ newState: GlyphMorphState) {
+        if enableHaptics {
+            switch newState {
+            case .active:
+                let impact = UIImpactFeedbackGenerator(style: .light)
+                impact.impactOccurred()
+            case .error:
+                let notification = UINotificationFeedbackGenerator()
+                notification.notificationOccurred(.error)
+            default:
+                break
+            }
+        }
+    }
+
+    private func setupAnimations() {
+        // Initial states for continuous animations
+        pulseScale = 1.0
+        rotationAngle = 0
+        innerPolygonScale = 1.0
+        outerCircleScale = 1.0
+        glowScale = 1.0
+    }
+
+    // Orchestrates animations based on the state
+    private func animateForState(_ newState: GlyphMorphState) {
+        // Resetting values for predictable animations
+        innerPolygonScale = 1.0
+        outerCircleScale = 1.0
+        pulseScale = 1.0
+        rotationAngle = 0
+        glowScale = 1.0
+
+        withAnimation(.easeInOut(duration: animationDuration * 1.2).delay(animationOffset * 0.1)) {
+            // Apply state-specific scale transformations
+            switch newState {
+            case .active:
+                outerCircleScale = 1.08 // Slightly larger outer circle when active
+                innerPolygonScale = 1.05 // Slightly larger inner polygon
+            case .processing:
+                pulseScale = 1.15 // Start pulse animation from slightly larger
+                // Rotation and pulsing will be handled by the repeating animations
+            case .error:
+                outerCircleScale = 0.92 // Slightly smaller outer circle when error
+                innerPolygonScale = 0.95 // Slightly smaller inner polygon
+            case .idle:
+                break // No special scaling
+            }
+        }
+
+        // Continuous animations that run independently
+        switch newState {
+        case .processing:
+            // Pulsing animation for processing state
+            withAnimation(.easeInOut(duration: 1.0).delay(animationOffset * 0.2).repeatForever(autoreverses: true)) {
+                pulseScale = 1.15 // Ensure it reaches the target value
+            }
+
+            // Continuous rotation for processing state
+            withAnimation(.linear(duration: 2.0).delay(animationOffset * 0.2).repeatForever(autoreverses: false)) {
+                rotationAngle = 360
+            }
+        default:
+            // Ensure repeating animations stop if state changes away from processing
+            pulseScale = 1.0
+            rotationAngle = 0
+            // Setting these to 1.0 will effectively stop their scaling animations
+            // if they were running.
+        }
+    }
+}
+
+// MARK: - Convenience Initializers
+extension FragmentAnalyzerIcon {
+    static func small(state: GlyphMorphState) -> FragmentAnalyzerIcon {
+        FragmentAnalyzerIcon(state: state, size: 20)
+    }
+
+    static func medium(state: GlyphMorphState) -> FragmentAnalyzerIcon {
+        FragmentAnalyzerIcon(state: state, size: 28)
+    }
+
+    static func large(state: GlyphMorphState) -> FragmentAnalyzerIcon {
+        FragmentAnalyzerIcon(state: state, size: 36)
+    }
+}
+
+// MARK: - Preview
+#Preview("All States") {
+    ScrollView {
+        VStack(spacing: 40) { // Increased spacing for better visual separation
+            // Default theme
+            VStack(spacing: 15) {
+                Text("Default Theme")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                HStack(spacing: 25) { // Increased spacing between icons
+                    ForEach(GlyphMorphState.allCases, id: \.self) { state in
+                        VStack {
+                            FragmentAnalyzerIcon(state: state, size: 35) // Slightly larger for demo
+                            Text(state.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+
+            Divider()
+
+            // Ocean theme
+            VStack(spacing: 15) {
+                Text("Ocean Theme")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                HStack(spacing: 25) {
+                    ForEach(GlyphMorphState.allCases, id: \.self) { state in
+                        VStack {
+                            FragmentAnalyzerIcon(state: state, size: 35)
+                                .environment(\.affinityProfile, .ocean)
+                            Text(state.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+
+            Divider()
+
+            // Sunset theme with size variations
+            VStack(spacing: 15) {
+                Text("Sunset Theme & Size Variations")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                HStack(spacing: 30) {
+                    VStack {
+                        FragmentAnalyzerIcon.small(state: .active) // Size 20
+                        Text("Small")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    VStack {
+                        FragmentAnalyzerIcon.medium(state: .active) // Size 28
+                        Text("Medium")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    VStack {
+                        FragmentAnalyzerIcon.large(state: .active) // Size 36
+                        Text("Large")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .environment(\.affinityProfile, .sunset)
+        }
+        .padding(.vertical)
+    }
+    .previewDisplayName("All States & Themes")
+}
+
+#Preview("Interactive Demo") {
+    struct InteractiveDemo: View {
+        @State private var currentState: GlyphMorphState = .idle
+        @State private var selectedThemeIndex: Int = 0
+        @State private var animationSpeedMultiplier: CGFloat = 1.0 // Control animation speed
+
+        let themes: [(name: String, profile: AffinityProfile)] = [
+            ("Default", .defaultTheme),
+            ("Ocean", .ocean),
+            ("Sunset", .sunset),
+            ("Forest", .forest),
+            ("Error", .error) // Explicitly show error theme
+        ]
+
+        var body: some View {
+            NavigationView { // Use NavigationView for better title display
+                VStack(spacing: 30) {
+                    Text("Fragment Analyzer Configurator")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+
+                    // Main Icon Display
+                    FragmentAnalyzerIcon(
+                        state: currentState,
+                        size: 80, // Make it large for the demo
+                        animationDuration: 0.4 / animationSpeedMultiplier // Adjust speed
+                    )
+                    .environment(\.affinityProfile, themes[selectedThemeIndex].profile)
+
+                    // State Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Current State")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+
+                        Picker("State", selection: $currentState) {
+                            ForEach(GlyphMorphState.allCases, id: \.self) { state in
+                                Text(state.description.capitalized).tag(state)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal, -5) // To align with edge of VStack
+                    }
+
+                    // Theme Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Color Theme")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+
+                        Picker("Theme", selection: $selectedThemeIndex) {
+                            ForEach(0..<themes.count, id: \.self) { index in
+                                Text(themes[index].name).tag(index)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal, -5)
+                    }
+                    
+                    // Animation Speed Slider
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Animation Speed: \(String(format: "%.1fx", animationSpeedMultiplier))")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        
+                        Slider(value: $animationSpeedMultiplier, in: 0.5...2.0, step: 0.1)
+                            .accentColor(themes[selectedThemeIndex].profile.gradientColors.first ?? .blue) // Accent to theme color
+                    }
+
+
+                    Spacer()
+                }
+                .padding()
+                .navigationTitle("Icon Customizer")
+                .background(Color(UIColor.systemGroupedBackground)) // Better background for demo
+            }
+        }
+    }
+
+    return InteractiveDemo()
+}
