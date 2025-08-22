@@ -1,5 +1,193 @@
 import SwiftUI
+import CoreGraphics
+import Combine
 
+#if os(iOS) || os(tvOS) || os(watchOS)
+import UIKit
+public typealias PlatformImage = UIImage
+#elseif os(macOS)
+import AppKit
+public typealias PlatformImage = NSImage
+#endif
+
+// MARK: - Project State System
+public enum ProjectState: String, CaseIterable, Identifiable {
+    case idle = "idle"
+    case building = "building"
+    case active = "active"
+    case syncing = "syncing"
+    case deployed = "deployed"
+    case error = "error"
+    case archived = "archived"
+    
+    public var id: String { self.rawValue }
+    
+    var description: String {
+        switch self {
+        case .idle: return "idle"
+        case .building: return "building"
+        case .active: return "active"
+        case .syncing: return "syncing"
+        case .deployed: return "deployed"
+        case .error: return "error"
+        case .archived: return "archived"
+        }
+    }
+    
+    var animationStyle: ProjectAnimationStyle {
+        switch self {
+        case .idle: return .breathe
+        case .building: return .construct
+        case .active: return .pulse
+        case .syncing: return .flow
+        case .deployed: return .glow
+        case .error: return .shake
+        case .archived: return .fade
+        }
+    }
+}
+
+public enum ProjectAnimationStyle {
+    case breathe, construct, pulse, flow, glow, shake, fade
+}
+
+// MARK: - Companion Affinity for Projects
+public enum CompanionAffinity: String, CaseIterable, Identifiable {
+    case lucis = "Lucis" // Buoyant, glowing, light
+    case orrin = "Orrin" // Grounded, focused, minimal
+    case caelo = "Caelo" // Flowing, ethereal, serene
+
+    public var id: String { self.rawValue }
+
+    var damping: Double {
+        switch self {
+        case .lucis: return 0.6
+        case .orrin: return 0.8
+        case .caelo: return 0.7
+        }
+    }
+
+    var response: Double {
+        switch self {
+        case .lucis: return 0.5
+        case .orrin: return 0.4
+        case .caelo: return 0.8
+        }
+    }
+
+    var gradient: LinearGradient {
+        switch self {
+        case .lucis:
+            return LinearGradient(colors: [Color.blue.opacity(0.8), Color.cyan.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .orrin:
+            return LinearGradient(colors: [Color.gray.opacity(0.5), Color.white.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .caelo:
+            return LinearGradient(colors: [Color.purple.opacity(0.7), Color.indigo.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+    
+    // Project-specific animation physics
+    func animationFor(style: ProjectAnimationStyle) -> Animation {
+        let baseAnimation: Animation
+        
+        switch style {
+        case .breathe:
+            baseAnimation = .easeInOut(duration: 2.0).repeatForever(autoreverses: true)
+        case .construct:
+            baseAnimation = .linear(duration: 1.5).repeatForever(autoreverses: false)
+        case .pulse:
+            baseAnimation = .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
+        case .flow:
+            baseAnimation = .linear(duration: 3.0).repeatForever(autoreverses: false)
+        case .glow:
+            baseAnimation = .easeInOut(duration: 1.5).repeatForever(autoreverses: true)
+        case .shake:
+            baseAnimation = .easeInOut(duration: 0.1).repeatCount(8, autoreverses: true)
+        case .fade:
+            baseAnimation = .easeInOut(duration: 0.8)
+        }
+        
+        return baseAnimation
+    }
+}
+
+// MARK: - Project Affinity Profile
+public struct ProjectAffinityProfile {
+    var gradientColors: [Color]
+    var gradientStart: UnitPoint = .topLeading
+    var gradientEnd: UnitPoint = .bottomTrailing
+    var shadowColor: Color
+    var glowIntensity: CGFloat
+    var glowColor: Color
+    var strokeWidth: CGFloat
+    var animationIntensity: CGFloat
+    
+    init(
+        gradientColors: [Color],
+        gradientStart: UnitPoint = .topLeading,
+        gradientEnd: UnitPoint = .bottomTrailing,
+        shadowColor: Color = .black.opacity(0.2),
+        glowIntensity: CGFloat = 0.3,
+        glowColor: Color = .white,
+        strokeWidth: CGFloat = 2.0,
+        animationIntensity: CGFloat = 1.0
+    ) {
+        self.gradientColors = gradientColors
+        self.gradientStart = gradientStart
+        self.gradientEnd = gradientEnd
+        self.shadowColor = shadowColor
+        self.glowIntensity = glowIntensity
+        self.glowColor = glowColor
+        self.strokeWidth = strokeWidth
+        self.animationIntensity = animationIntensity
+    }
+    
+    // Project-specific themes
+    static let development = ProjectAffinityProfile(
+        gradientColors: [.blue, .cyan, .mint],
+        shadowColor: .blue.opacity(0.3),
+        glowIntensity: 0.4,
+        glowColor: .cyan.opacity(0.7),
+        strokeWidth: 2.5
+    )
+    
+    static let production = ProjectAffinityProfile(
+        gradientColors: [.green, .mint, .white],
+        shadowColor: .green.opacity(0.3),
+        glowIntensity: 0.5,
+        glowColor: .mint.opacity(0.8),
+        strokeWidth: 3.0
+    )
+    
+    static let building = ProjectAffinityProfile(
+        gradientColors: [.orange, .yellow, .white],
+        shadowColor: .orange.opacity(0.4),
+        glowIntensity: 0.6,
+        glowColor: .yellow.opacity(0.8),
+        strokeWidth: 2.8,
+        animationIntensity: 1.3
+    )
+    
+    static let error = ProjectAffinityProfile(
+        gradientColors: [.red, .pink, .orange],
+        shadowColor: .red.opacity(0.5),
+        glowIntensity: 0.7,
+        glowColor: .red.opacity(0.9),
+        strokeWidth: 3.5,
+        animationIntensity: 1.5
+    )
+    
+    static let archived = ProjectAffinityProfile(
+        gradientColors: [.gray, .white],
+        shadowColor: .gray.opacity(0.2),
+        glowIntensity: 0.1,
+        glowColor: .white.opacity(0.3),
+        strokeWidth: 1.5,
+        animationIntensity: 0.5
+    )
+}
+
+// MARK: - Enhanced Polygon Shape (from your existing code)
 struct Polygon: Shape {
     var sides: Int
     var cornerRadius: CGFloat = 0
@@ -58,4 +246,601 @@ struct Polygon: Shape {
         path.closeSubpath()
         return path
     }
+}
+
+// MARK: - Project Structure Shape
+struct ProjectStructureShape: Shape {
+    var progress: CGFloat = 1.0
+    var complexity: Int = 3 // Number of structural layers
+    var connectionStrength: CGFloat = 0.6
+    
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+    
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let baseRadius = min(rect.width, rect.height) / 4
+        
+        var path = Path()
+        
+        // Create concentric project layers
+        for layer in 0..<complexity {
+            let layerProgress = max(0, min(1, (progress - CGFloat(layer) * 0.3) / 0.7))
+            if layerProgress <= 0 { continue }
+            
+            let radius = baseRadius * (1 + CGFloat(layer) * 0.4) * layerProgress
+            let sides = 4 + layer * 2 // More complex shapes for outer layers
+            let angle = 2 * .pi / CGFloat(sides)
+            
+            // Create layer structure
+            for i in 0..<sides {
+                let theta = angle * CGFloat(i) - .pi / 2
+                let point = CGPoint(
+                    x: center.x + cos(theta) * radius,
+                    y: center.y + sin(theta) * radius
+                )
+                
+                // Draw structural nodes
+                let nodeSize = 4.0 * layerProgress
+                path.addEllipse(in: CGRect(
+                    x: point.x - nodeSize/2,
+                    y: point.y - nodeSize/2,
+                    width: nodeSize,
+                    height: nodeSize
+                ))
+                
+                // Connect to center if first layer
+                if layer == 0 {
+                    path.move(to: center)
+                    path.addLine(to: point)
+                }
+                
+                // Connect to previous layer
+                if layer > 0 {
+                    let prevRadius = baseRadius * (1 + CGFloat(layer - 1) * 0.4)
+                    let prevPoint = CGPoint(
+                        x: center.x + cos(theta) * prevRadius,
+                        y: center.y + sin(theta) * prevRadius
+                    )
+                    path.move(to: prevPoint)
+                    path.addLine(to: point)
+                }
+            }
+        }
+        
+        return path
+    }
+}
+
+// MARK: - Project Icon
+public struct ProjectIcon: View {
+    @State public var state: ProjectState
+    public var size: CGFloat = 36
+    public var affinity: CompanionAffinity = .orrin
+    public var profile: ProjectAffinityProfile = .development
+    public var enableHaptics: Bool = true
+    public var showDetails: Bool = false
+    
+    // Animation states
+    @State private var isHovering = false
+    @State private var animationScale: CGFloat = 1.0
+    @State private var rotationAngle: Double = 0
+    @State private var pulseOpacity: Double = 1.0
+    @State private var glowScale: CGFloat = 1.0
+    @State private var shakeOffset: CGSize = .zero
+    @State private var structureProgress: CGFloat = 1.0
+    @State private var breatheScale: CGFloat = 1.0
+    @State private var buildProgress: CGFloat = 0.0
+    
+    // Computed properties
+    private var currentProfile: ProjectAffinityProfile {
+        switch state {
+        case .error: return .error
+        case .building: return .building
+        case .deployed: return .production
+        case .archived: return .archived
+        default: return profile
+        }
+    }
+    
+    private var mainGradient: LinearGradient {
+        LinearGradient(
+            colors: currentProfile.gradientColors,
+            startPoint: currentProfile.gradientStart,
+            endPoint: currentProfile.gradientEnd
+        )
+    }
+    
+    private var glowGradient: RadialGradient {
+        RadialGradient(
+            colors: [
+                currentProfile.glowColor.opacity(currentProfile.glowIntensity),
+                currentProfile.glowColor.opacity(0)
+            ],
+            center: .center,
+            startRadius: 0,
+            endRadius: size * 0.8
+        )
+    }
+    
+    private var iconScale: CGFloat {
+        switch state {
+        case .idle: return (isHovering ? 1.05 : 1.0) * breatheScale
+        case .building: return animationScale
+        case .active: return 1.1 * animationScale
+        case .syncing: return animationScale
+        case .deployed: return 1.15
+        case .error: return 0.95
+        case .archived: return 0.9
+        }
+    }
+    
+    private var iconOpacity: Double {
+        switch state {
+        case .building: return pulseOpacity
+        case .archived: return 0.6
+        case .error: return 0.9
+        default: return 1.0
+        }
+    }
+    
+    private var structureComplexity: Int {
+        switch state {
+        case .idle: return 2
+        case .building: return Int(buildProgress * 4) + 1
+        case .active: return 3
+        case .syncing: return 4
+        case .deployed: return 5
+        case .error: return 2
+        case .archived: return 1
+        }
+    }
+    
+    private var connectionStrength: CGFloat {
+        switch state {
+        case .idle: return 0.3
+        case .building: return buildProgress
+        case .active: return 0.8
+        case .syncing: return 1.0
+        case .deployed: return 0.9
+        case .error: return 0.1
+        case .archived: return 0.2
+        }
+    }
+    
+    public var body: some View {
+        ZStack {
+            // Background glow
+            if currentProfile.glowIntensity > 0 {
+                Circle()
+                    .fill(glowGradient)
+                    .frame(width: size * 1.6, height: size * 1.6)
+                    .scaleEffect(glowScale)
+                    .opacity(currentProfile.glowIntensity * 0.8)
+                    .blur(radius: 12)
+            }
+            
+            // Main project container
+            ZStack {
+                // Outer hexagon (project boundary)
+                Polygon(sides: 6, cornerRadius: size * 0.08)
+                    .stroke(mainGradient, lineWidth: currentProfile.strokeWidth)
+                    .frame(width: size, height: size)
+                    .scaleEffect(iconScale)
+                    .opacity(iconOpacity)
+                    .shadow(
+                        color: currentProfile.shadowColor,
+                        radius: 6,
+                        x: 0,
+                        y: 3
+                    )
+                
+                // Inner project structure
+                ProjectStructureShape(
+                    progress: structureProgress,
+                    complexity: structureComplexity,
+                    connectionStrength: connectionStrength
+                )
+                .stroke(mainGradient, lineWidth: currentProfile.strokeWidth * 0.6)
+                .frame(width: size * 0.7, height: size * 0.7)
+                .scaleEffect(iconScale * 0.9)
+                .opacity(iconOpacity * 0.8)
+                
+                // Core project indicator
+                Circle()
+                    .fill(mainGradient)
+                    .frame(width: size * 0.15, height: size * 0.15)
+                    .scaleEffect(iconScale)
+                    .opacity(iconOpacity)
+            }
+            .rotationEffect(.degrees(rotationAngle))
+            .offset(shakeOffset)
+            
+            // State indicator overlay
+            if showDetails {
+                VStack {
+                    Spacer()
+                    Text(state.description.capitalized)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .frame(width: size * 1.2, height: size * 1.4)
+            }
+        }
+        .frame(width: size * 1.8, height: size * 1.8)
+        .contentShape(Circle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isHovering = hovering
+            }
+        }
+        .onChange(of: state) { _, newState in
+            handleStateChange(newState)
+            animateForState(newState)
+        }
+        .onAppear {
+            setupInitialState()
+            animateForState(state)
+        }
+        .accessibilityLabel("Project icon")
+        .accessibilityValue("State: \(state.description)")
+        .accessibilityHint("Represents current project state")
+        .accessibilityAddTraits(state == .active ? .isSelected : [])
+    }
+    
+    // MARK: - Animation Handling
+    
+    private func handleStateChange(_ newState: ProjectState) {
+        #if os(iOS)
+        if enableHaptics {
+            switch newState {
+            case .active:
+                let impact = UIImpactFeedbackGenerator(style: .light)
+                impact.impactOccurred()
+            case .deployed:
+                let impact = UIImpactFeedbackGenerator(style: .medium)
+                impact.impactOccurred()
+            case .error:
+                let notification = UINotificationFeedbackGenerator()
+                notification.notificationOccurred(.error)
+            default:
+                break
+            }
+        }
+        #endif
+    }
+    
+    private func setupInitialState() {
+        animationScale = 1.0
+        rotationAngle = 0
+        pulseOpacity = 1.0
+        glowScale = 1.0
+        shakeOffset = .zero
+        structureProgress = 1.0
+        breatheScale = 1.0
+        buildProgress = 0.0
+    }
+    
+    private func animateForState(_ newState: ProjectState) {
+        // Reset animations
+        stopAllAnimations()
+        
+        // Apply state-specific animations
+        switch newState {
+        case .idle:
+            // Breathing animation
+            withAnimation(affinity.animationFor(style: .breathe)) {
+                breatheScale = 1.05
+            }
+            
+        case .building:
+            // Building progress animation
+            buildProgress = 0.0
+            withAnimation(.linear(duration: 3.0)) {
+                buildProgress = 1.0
+            }
+            // Construction pulse
+            withAnimation(affinity.animationFor(style: .construct)) {
+                animationScale = 1.1
+                pulseOpacity = 0.7
+            }
+            
+        case .active:
+            // Active pulse
+            withAnimation(affinity.animationFor(style: .pulse)) {
+                animationScale = 1.05
+                glowScale = 1.4
+            }
+            withAnimation(.easeInOut(duration: 0.5)) {
+                structureProgress = 1.0
+            }
+            
+        case .syncing:
+            // Flow rotation
+            withAnimation(affinity.animationFor(style: .flow)) {
+                rotationAngle = 360
+            }
+            // Scale pulse
+            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                animationScale = 1.08
+            }
+            
+        case .deployed:
+            // Success glow
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.4)) {
+                glowScale = 2.0
+                animationScale = 1.2
+            }
+            // Settle after celebration
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation(.easeInOut(duration: 1.0)) {
+                    glowScale = 1.3
+                    animationScale = 1.0
+                }
+            }
+            
+        case .error:
+            // Shake animation
+            withAnimation(affinity.animationFor(style: .shake)) {
+                shakeOffset = CGSize(width: 3, height: 0)
+            }
+            // Reduce structure
+            withAnimation(.easeInOut(duration: 0.8)) {
+                structureProgress = 0.3
+            }
+            
+        case .archived:
+            // Fade out
+            withAnimation(affinity.animationFor(style: .fade)) {
+                structureProgress = 0.1
+                animationScale = 0.9
+            }
+        }
+    }
+    
+    private func stopAllAnimations() {
+        shakeOffset = .zero
+        buildProgress = 0.0
+    }
+}
+
+// MARK: - Project Collection View
+public struct ProjectIconCollection: View {
+    @State private var selectedState: ProjectState = .idle
+    @State private var selectedAffinity: CompanionAffinity = .orrin
+    @State private var showDetails: Bool = true
+    
+    public var body: some View {
+        VStack(spacing: 30) {
+            Text("Project State Icons")
+                .font(.title2)
+                .fontWeight(.semibold)
+            
+            // State demonstration
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 25) {
+                ForEach(ProjectState.allCases) { state in
+                    VStack(spacing: 8) {
+                        ProjectIcon(
+                            state: state,
+                            size: 48,
+                            affinity: selectedAffinity,
+                            showDetails: showDetails
+                        )
+                        .onTapGesture {
+                            withAnimation {
+                                selectedState = state
+                            }
+                        }
+                        
+                        Text(state.description.capitalized)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(selectedState == state ? Color.blue.opacity(0.1) : Color.clear)
+                            .stroke(selectedState == state ? Color.blue.opacity(0.3) : Color.clear, lineWidth: 1)
+                    )
+                }
+            }
+            
+            // Controls
+            VStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Companion Affinity")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    
+                    Picker("Affinity", selection: $selectedAffinity) {
+                        ForEach(CompanionAffinity.allCases) { affinity in
+                            Text(affinity.rawValue).tag(affinity)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
+                Toggle("Show Details", isOn: $showDetails)
+                    .toggleStyle(.switch)
+            }
+            
+            Spacer()
+        }
+        .padding()
+    }
+}
+
+// MARK: - Integration Extensions
+
+extension ProjectIcon {
+    /// Create a demo icon that cycles through states
+    public static func demo(size: CGFloat = 36, affinity: CompanionAffinity = .orrin) -> some View {
+        struct DemoIcon: View {
+            @State private var currentStateIndex = 0
+            @State private var timer: Timer?
+            
+            let size: CGFloat
+            let affinity: CompanionAffinity
+            let states = ProjectState.allCases
+            
+            var body: some View {
+                ProjectIcon(
+                    state: states[currentStateIndex],
+                    size: size,
+                    affinity: affinity,
+                    showDetails: true
+                )
+                .onAppear {
+                    startDemo()
+                }
+                .onDisappear {
+                    timer?.invalidate()
+                }
+            }
+            
+            private func startDemo() {
+                timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+                    withAnimation(.easeInOut(duration: 0.8)) {
+                        currentStateIndex = (currentStateIndex + 1) % states.count
+                    }
+                }
+            }
+        }
+        
+        return DemoIcon(size: size, affinity: affinity)
+    }
+    
+    /// Create a project icon with specific styling
+    public static func styled(
+        state: ProjectState,
+        size: CGFloat = 36,
+        affinity: CompanionAffinity = .orrin,
+        profile: ProjectAffinityProfile = .development
+    ) -> ProjectIcon {
+        ProjectIcon(
+            state: state,
+            size: size,
+            affinity: affinity,
+            profile: profile
+        )
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Project States") {
+    ScrollView {
+        VStack(spacing: 40) {
+            // All states with different affinities
+            ForEach(CompanionAffinity.allCases) { affinity in
+                VStack(spacing: 15) {
+                    Text("\(affinity.rawValue) Affinity")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    HStack(spacing: 15) {
+                        ForEach(ProjectState.allCases.prefix(4)) { state in
+                            VStack {
+                                ProjectIcon(
+                                    state: state,
+                                    size: 40,
+                                    affinity: affinity
+                                )
+                                Text(state.description)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    
+                    HStack(spacing: 15) {
+                        ForEach(ProjectState.allCases.suffix(3)) { state in
+                            VStack {
+                                ProjectIcon(
+                                    state: state,
+                                    size: 40,
+                                    affinity: affinity
+                                )
+                                Text(state.description)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding()
+    }
+    .previewDisplayName("All States & Affinities")
+}
+
+#Preview("Interactive Collection") {
+    ProjectIconCollection()
+        .previewDisplayName("Interactive Project Icons")
+}
+
+#Preview("Demo Animation") {
+    VStack(spacing: 30) {
+        Text("Auto-Morphing Project Demo")
+            .font(.title2)
+            .fontWeight(.semibold)
+        
+        HStack(spacing: 40) {
+            ForEach(CompanionAffinity.allCases) { affinity in
+                VStack(spacing: 12) {
+                    ProjectIcon.demo(size: 60, affinity: affinity)
+                    Text(affinity.rawValue)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        
+        Spacer()
+    }
+    .padding()
+    .previewDisplayName("Auto-Morphing Project Demo")
+}
+
+#Preview("Project Profiles") {
+    VStack(spacing: 30) {
+        Text("Project Profile Variations")
+            .font(.title2)
+            .fontWeight(.semibold)
+        
+        let profiles: [(String, ProjectAffinityProfile)] = [
+            ("Development", .development),
+            ("Production", .production),
+            ("Building", .building),
+            ("Error", .error),
+            ("Archived", .archived)
+        ]
+        
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 20) {
+            ForEach(profiles.indices, id: \.self) { index in
+                let (name, profile) = profiles[index]
+                VStack(spacing: 8) {
+                    ProjectIcon.styled(
+                        state: .active,
+                        size: 50,
+                        affinity: .orrin,
+                        profile: profile
+                    )
+                    Text(name)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        
+        Spacer()
+    }
+    .padding()
+    .previewDisplayName("Profile Variations")
 }
